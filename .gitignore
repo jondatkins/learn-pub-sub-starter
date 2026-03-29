@@ -1,1 +1,6 @@
-*.log
+out
+*.db
+.env
+assets/
+samples/
+notes.md
