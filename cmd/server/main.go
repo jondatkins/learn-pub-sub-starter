@@ -3,70 +3,84 @@ package main
 import (
 	"fmt"
 	"log"
-	"os"
-	"os/signal"
-	"syscall"
 
 	amqp "github.com/rabbitmq/amqp091-go"
 
-	. "github.com/bootdotdev/learn-pub-sub-starter/internal/gamelogic"
-	. "github.com/bootdotdev/learn-pub-sub-starter/internal/pubsub"
-	. "github.com/bootdotdev/learn-pub-sub-starter/internal/routing"
+	"github.com/jondatkins/learn-pub-sub-starter/internal/gamelogic"
+	. "github.com/jondatkins/learn-pub-sub-starter/internal/gamelogic"
+	"github.com/jondatkins/learn-pub-sub-starter/internal/pubsub"
+	. "github.com/jondatkins/learn-pub-sub-starter/internal/pubsub"
+	"github.com/jondatkins/learn-pub-sub-starter/internal/routing"
+	. "github.com/jondatkins/learn-pub-sub-starter/internal/routing"
 )
 
 func main() {
-	fmt.Println("Starting Peril server...")
-	connectString := "amqp://guest:guest@localhost:5672/"
+	const connectString = "amqp://guest:guest@localhost:5672/"
 	connection, err := amqp.Dial(connectString)
 	if err != nil {
-		log.Fatal("Failed to connect to amqp")
+		log.Fatalf("Failed to connect to RabbitMQ: %v")
 	}
 	defer connection.Close()
-	fmt.Println("Connection Successful")
+	fmt.Println("Peril game server connected to RabbitMQ!")
 
-	// Create a channel to receive OS signals
-	done := make(chan os.Signal, 1)
-
-	// Notify the channel on SIGINT (Ctrl+C)
-	signal.Notify(done, syscall.SIGINT, syscall.SIGTERM)
-
-	_, _, err = DeclareAndBind(connection, ExchangePerilDirect, PauseKey+"."+username, PauseKey, QueueTypeTransient)
+	publishCh, err := connection.Channel()
 	if err != nil {
-		fmt.Println("Error in DeclareAndBind call", err)
-		return
+		log.Fatalf("could not create channel: %v", err)
 	}
+
+	_, queue, err := pubsub.DeclareAndBind(
+		connection,
+		routing.ExchangePerilTopic,
+		routing.GameLogSlug,
+		routing.GameLogSlug+".*",
+		SimpleQueueDurable,
+	)
+	if err != nil {
+		log.Fatalf("could not subscribe to pause: %v", err)
+	}
+	fmt.Printf("Queue %v declared and bound!\n", queue.Name)
+
 	PrintServerHelp()
-	// At the beginning of the loop, use the GetInput function in internal/gamelogic to wait
-	// for a slice of input "words" from the user. If the slice is empty, continue to the next iteration of the loop.
-	// Check the first word:
-	// If it's "pause", log to the console that you're sending a pause message, and publish the pause message as you were doing before.
-	// If it's "resume", log to the console that you're sending a resume message, and publish the resume message as you were doing before.
-	// The only difference is that the IsPaused field should be set to false.
-	// If it's "quit", log to the console that you're exiting, and break out of the loop.
-	// If it's anything else, log to the console that you don't understand the command.
+
 	for {
-		input := GetInput()
+		input := gamelogic.GetInput()
 		if len(input) == 0 {
 			continue
 		}
 		switch input[0] {
 		case "pause":
-			fmt.Println("Sending Pause Message")
-			publishMessage(connection, PauseKey, true)
+			fmt.Println("Publishing paused game state")
+			err = pubsub.PublishJSON(
+				publishCh,
+				routing.ExchangePerilDirect,
+				routing.PauseKey,
+				routing.PlayingState{
+					IsPaused: true,
+				},
+			)
+			if err != nil {
+				log.Printf("could not publish time: %v", err)
+			}
 		case "resume":
-			fmt.Println("Sending Resume Message")
-			publishMessage(connection, ResumeKey, false)
+			fmt.Println("Publishing resumes game state")
+			err = pubsub.PublishJSON(
+				publishCh,
+				routing.ExchangePerilDirect,
+				routing.PauseKey,
+				routing.PlayingState{
+					IsPaused: false,
+				},
+			)
+			if err != nil {
+				log.Printf("could not publish time: %v", err)
+			}
 		case "quit":
-			fmt.Println("Exiting")
-			break
+			log.Println("goodbye")
+			return
 		default:
-			fmt.Println("Bad Command")
+			fmt.Println("unknown command")
 		}
 	}
-
-	// Block until a signal is received
-	// <-done
-	// fmt.Println("Received Ctrl+C, exiting gracefully...")
 }
 
 func publishMessage(connection *amqp.Connection, key string, isPaused bool) error {
