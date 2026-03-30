@@ -30,6 +30,11 @@ func main() {
 	// Notify the channel on SIGINT (Ctrl+C)
 	signal.Notify(done, syscall.SIGINT, syscall.SIGTERM)
 
+	_, _, err = DeclareAndBind(connection, ExchangePerilDirect, PauseKey+"."+username, PauseKey, QueueTypeTransient)
+	if err != nil {
+		fmt.Println("Error in DeclareAndBind call", err)
+		return
+	}
 	PrintServerHelp()
 	// At the beginning of the loop, use the GetInput function in internal/gamelogic to wait
 	// for a slice of input "words" from the user. If the slice is empty, continue to the next iteration of the loop.
