@@ -7,6 +7,7 @@ import (
 	amqp "github.com/rabbitmq/amqp091-go"
 
 	. "github.com/jondatkins/learn-pub-sub-starter/internal/gamelogic"
+	"github.com/jondatkins/learn-pub-sub-starter/internal/pubsub"
 	. "github.com/jondatkins/learn-pub-sub-starter/internal/pubsub"
 	. "github.com/jondatkins/learn-pub-sub-starter/internal/routing"
 )
@@ -26,20 +27,26 @@ func main() {
 	if err != nil {
 		log.Fatalf("could not get username: %v", err)
 	}
-
-	_, queue, err := DeclareAndBind(
+	gameState := NewGameState(username)
+	pubsub.SubscribeJSON(
 		connection,
 		ExchangePerilDirect,
 		PauseKey+"."+username,
 		PauseKey,
 		SimpleQueueTransient,
+		// NewHandler here
+		handlerPause(gameState),
 	)
-	if err != nil {
-		log.Fatalf("could not subscribe to pause: %v", err)
-	}
-	fmt.Printf("Queue %v declared and not bound!\n", queue.Name)
-
-	gameState := NewGameState(username)
+	// 	connection,
+	// 	ExchangePerilDirect,
+	// 	PauseKey+"."+username,
+	// 	PauseKey,
+	// 	SimpleQueueTransient,
+	// )
+	// if err != nil {
+	// 	log.Fatalf("could not subscribe to pause: %v", err)
+	// }
+	// fmt.Printf("Queue %v declared and not bound!\n", queue.Name)
 
 	for {
 		input := GetInput()
