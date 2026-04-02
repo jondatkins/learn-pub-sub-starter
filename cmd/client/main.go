@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"log"
+	"time"
 
 	amqp "github.com/rabbitmq/amqp091-go"
 
@@ -67,7 +68,7 @@ func main() {
 		routing.WarRecognitionsPrefix,
 		routing.WarRecognitionsPrefix+".*",
 		SimpleQueueDurable,
-		handlerWarMessages(gameState, publishCh),
+		handlerWar(gameState, publishCh),
 	)
 	if err != nil {
 		log.Fatalf("could not subscribe to war queue: %v", err)
@@ -128,4 +129,22 @@ func main() {
 			fmt.Println("unknown command")
 		}
 	}
+}
+
+// Create a reusable function to publish a GameLog struct:
+// The topic exchange.
+// The GameLogSlug.username routing key, where username is the name of the player who initiated the war, and GameLogSlug is a constant in the routing package.
+// The GameLog struct should be serialized using the PublishGob function. Fill all the fields in.
+// If a publishing fails, NackRequeue, otherwise Ack.
+func PublishGameLog(ch *amqp.Channel, username, message string) error {
+	return pubsub.PublishGob(
+		ch,
+		routing.ExchangePerilTopic,
+		routing.GameLogSlug+"."+username,
+		routing.GameLog{
+			Username:    username,
+			CurrentTime: time.Now(),
+			Message:     message,
+		},
+	)
 }

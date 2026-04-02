@@ -9,7 +9,7 @@ import (
 	amqp "github.com/rabbitmq/amqp091-go"
 )
 
-func handlerWarMessages(gs *gamelogic.GameState, channel *amqp.Channel) func(gamelogic.RecognitionOfWar) pubsub.Acktype {
+func handlerWar(gs *gamelogic.GameState, channel *amqp.Channel) func(gamelogic.RecognitionOfWar) pubsub.Acktype {
 	return func(recOfWar gamelogic.RecognitionOfWar) pubsub.Acktype {
 		defer fmt.Print("> ")
 
@@ -21,15 +21,15 @@ func handlerWarMessages(gs *gamelogic.GameState, channel *amqp.Channel) func(gam
 			return pubsub.NackDiscard
 		case gamelogic.WarOutcomeYouWon:
 			logMessage := fmt.Sprint("%s won a war against %s", loser, winner)
-			pubsub.PublishGameLog(channel, gs.GetUsername(), logMessage)
+			PublishGameLog(channel, gs.GetUsername(), logMessage)
 			return pubsub.Ack
 		case gamelogic.WarOutcomeOpponentWon:
 			logMessage := fmt.Sprint("%s won a war against %s", winner, loser)
-			pubsub.PublishGameLog(channel, gs.GetUsername(), logMessage)
+			PublishGameLog(channel, gs.GetUsername(), logMessage)
 			return pubsub.Ack
 		case gamelogic.WarOutcomeDraw:
 			logMessage := fmt.Sprint("A war between %s and % resulted in a draw", winner, loser)
-			pubsub.PublishGameLog(channel, gs.GetUsername(), logMessage)
+			PublishGameLog(channel, gs.GetUsername(), logMessage)
 			return pubsub.Ack
 		}
 		fmt.Println("error: unknown war outcome")
