@@ -9,32 +9,27 @@ import (
 	amqp "github.com/rabbitmq/amqp091-go"
 )
 
-// Create a new handler that consumes all the war messages that the "move" handler publishes, no matter the username in the routing key. It should:
-// defer fmt.Print("> ") to ensure a new prompt is printed after the handler is done.
-// Call the gamestate's HandleWar method with the message's body.
-// If the outcome is gamelogic.WarOutcomeNotInvolved: NackRequeue the message so another client can try to consume it.
-// If the outcome is gamelogic.WarOutcomeNoUnits: NackDiscard the message.
-// If the outcome is gamelogic.WarOutcomeOpponentWon: Ack the message.
-// If the outcome is gamelogic.WarOutcomeYouWon: Ack the message.
-// If the outcome is gamelogic.WarOutcomeDraw: Ack the message.
-// If it's anything else, print an error and NackDiscard the message.
-
-func handlerWarMessages(gs *gamelogic.GameState) func(gamelogic.RecognitionOfWar) pubsub.Acktype {
+func handlerWarMessages(gs *gamelogic.GameState, channel *amqp.Channel) func(gamelogic.RecognitionOfWar) pubsub.Acktype {
 	return func(recOfWar gamelogic.RecognitionOfWar) pubsub.Acktype {
 		defer fmt.Print("> ")
 
-		outcome, _, _ := gs.HandleWar(recOfWar)
-
+		outcome, winner, loser := gs.HandleWar(recOfWar)
 		switch outcome {
 		case gamelogic.WarOutcomeNotInvolved:
 			return pubsub.NackRequeue
 		case gamelogic.WarOutcomeNoUnits:
 			return pubsub.NackDiscard
 		case gamelogic.WarOutcomeYouWon:
+			logMessage := fmt.Sprint("%s won a war against %s", loser, winner)
+			pubsub.PublishGameLog(channel, gs.GetUsername(), logMessage)
 			return pubsub.Ack
 		case gamelogic.WarOutcomeOpponentWon:
+			logMessage := fmt.Sprint("%s won a war against %s", winner, loser)
+			pubsub.PublishGameLog(channel, gs.GetUsername(), logMessage)
 			return pubsub.Ack
 		case gamelogic.WarOutcomeDraw:
+			logMessage := fmt.Sprint("A war between %s and % resulted in a draw", winner, loser)
+			pubsub.PublishGameLog(channel, gs.GetUsername(), logMessage)
 			return pubsub.Ack
 		}
 		fmt.Println("error: unknown war outcome")
@@ -64,9 +59,10 @@ func handlerMove(gs *gamelogic.GameState, channel *amqp.Channel) func(gamelogic.
 				},
 			)
 			if err != nil {
-				fmt.Println(err)
+				fmt.Printf("error:%s\n", err)
+				return pubsub.NackRequeue
 			}
-			return pubsub.NackRequeue
+			return pubsub.Ack
 		}
 		fmt.Println("error: unknown move outcome")
 		return pubsub.NackDiscard
