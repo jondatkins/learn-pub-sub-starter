@@ -9,6 +9,7 @@ import (
 	. "github.com/jondatkins/learn-pub-sub-starter/internal/gamelogic"
 	"github.com/jondatkins/learn-pub-sub-starter/internal/pubsub"
 	. "github.com/jondatkins/learn-pub-sub-starter/internal/pubsub"
+	"github.com/jondatkins/learn-pub-sub-starter/internal/routing"
 	. "github.com/jondatkins/learn-pub-sub-starter/internal/routing"
 )
 
@@ -23,11 +24,30 @@ func main() {
 	defer connection.Close()
 	fmt.Println("Peril game client connected to RabbitMQ!")
 
+	publishCh, err := connection.Channel()
+	if err != nil {
+		log.Fatalf("could not create channel: %v", err)
+	}
+
 	username, err := ClientWelcome()
 	if err != nil {
 		log.Fatalf("could not get username: %v", err)
 	}
 	gameState := NewGameState(username)
+
+	pubsub.SubscribeJSON(
+		connection,
+		ExchangePerilTopic,
+		ArmyMovesPrefix+"."+gameState.GetUsername(),
+		ArmyMovesPrefix+".*",
+		SimpleQueueTransient,
+		// NewHandler here
+		handlerMove(gameState, publishCh),
+	)
+	if err != nil {
+		log.Fatalf("could not subscribe to army moves: %v", err)
+	}
+
 	pubsub.SubscribeJSON(
 		connection,
 		ExchangePerilDirect,
@@ -37,16 +57,21 @@ func main() {
 		// NewHandler here
 		handlerPause(gameState),
 	)
-	// 	connection,
-	// 	ExchangePerilDirect,
-	// 	PauseKey+"."+username,
-	// 	PauseKey,
-	// 	SimpleQueueTransient,
-	// )
-	// if err != nil {
-	// 	log.Fatalf("could not subscribe to pause: %v", err)
-	// }
-	// fmt.Printf("Queue %v declared and not bound!\n", queue.Name)
+	if err != nil {
+		log.Fatalf("could not subscribe to pause: %v", err)
+	}
+
+	pubsub.SubscribeJSON(
+		connection,
+		ExchangePerilTopic,
+		routing.WarRecognitionsPrefix,
+		routing.WarRecognitionsPrefix+".*",
+		SimpleQueueDurable,
+		handlerWarMessages(gameState),
+	)
+	if err != nil {
+		log.Fatalf("could not subscribe to war queue: %v", err)
+	}
 
 	for {
 		input := GetInput()
@@ -54,12 +79,35 @@ func main() {
 			continue
 		}
 		switch input[0] {
+		// The move command in the REPL should now publish a move.
+		// Publish the move to the army_moves.username routing key, where username
+		// is the name of the player.
+		// Use the peril_topic exchange.
+		// Log a message to the console stating that the move was published successfully.
 		case "move":
-			gameState.CommandMove(input)
+			move, err := gameState.CommandMove(input)
 			if err != nil {
 				fmt.Println(err)
 				continue
 			}
+
+			// gameLogic := GameLog{
+			// 	CurrentTime: time.Now(),
+			// 	Message:     input[1],
+			// 	Username:    username,
+			// }
+			err = pubsub.PublishJSON(
+				publishCh,
+				routing.ExchangePerilTopic,
+				routing.ArmyMovesPrefix+"."+username,
+				move,
+			)
+			if err != nil {
+				fmt.Println(err)
+				continue
+			}
+			// fmt.Println("Move published successfully: ", input)
+			fmt.Printf("Moved %v units to %s\n", len(move.Units), move.ToLocation)
 
 		case "spawn":
 			gameState.CommandSpawn(input)
